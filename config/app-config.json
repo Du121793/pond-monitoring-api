@@ -1,0 +1,5 @@
+{
+  "auth": {
+    "jwtExpiresIn": "24h"
+  }
+}
