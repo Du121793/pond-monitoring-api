@@ -265,24 +265,26 @@ export async function updateSensorDataWeatherFK(
   endDateTime
 ) {
   const query = `
-    UPDATE sensor_data
+    UPDATE sensor_data sd
     SET 
       fk_weather_actual_id = (
         SELECT id FROM weather_actual 
-        WHERE weather_datetime <= created_at
-        ORDER BY ABS(EXTRACT(EPOCH FROM (weather_datetime - created_at)))
+        WHERE weather_datetime <= sd.created_at
+        ORDER BY ABS(EXTRACT(EPOCH FROM (weather_datetime - sd.created_at)))
         LIMIT 1
       ),
       fk_weather_pred_id = (
         SELECT id FROM weather_pred 
-        WHERE forecast_datetime >= created_at
-        ORDER BY ABS(EXTRACT(EPOCH FROM (forecast_datetime - created_at)))
+        WHERE forecast_datetime >= sd.created_at
+        ORDER BY ABS(EXTRACT(EPOCH FROM (forecast_datetime - sd.created_at)))
         LIMIT 1
       )
-    WHERE pond_id = $1 
-      AND created_at >= $2 
-      AND created_at <= $3
-      AND (fk_weather_actual_id IS NULL OR fk_weather_pred_id IS NULL)
+    FROM sensors s
+    WHERE sd.sensor_id = s.id
+      AND s.pond_id = $1 
+      AND sd.created_at >= $2 
+      AND sd.created_at <= $3
+      AND (sd.fk_weather_actual_id IS NULL OR sd.fk_weather_pred_id IS NULL)
   `;
 
   const { rowCount } = await pool_RW.query(query, [
