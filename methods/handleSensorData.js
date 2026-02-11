@@ -65,7 +65,7 @@ const saveAndProcessImage = async (photoB64) => {
       }
     }
   } catch (err) {
-    logError("\u5f71\u50cf", err, { message: "\u5f71\u50cf\u8655\u7406\u5931\u6557" });
+    logError("影像", err, { message: "影像處理失敗" });
   }
 };
 
@@ -104,7 +104,7 @@ export const handleSensorData = async (sensorData) => {
 
     return await createNewRecord(dataToProcess);
   } catch (err) {
-    logError("\u611f\u6e2c\u5668", err, { body: sensorData });
+    logError("感測器", err, { body: sensorData });
     throw err;
   }
 };

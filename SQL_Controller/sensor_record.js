@@ -44,7 +44,7 @@ export const createNewRecord = async (data) => {
     const { rows } = await pool_RW.query(query, values);
     return rows[0];
   } catch (err) {
-    logError("\u8cc7\u6599\u5eab", err, { body: data });
+    logError("資料庫", err, { body: data });
     throw err;
   }
 };

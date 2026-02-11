@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS sensors (
   pond_id               BIGINT NOT NULL,
   sensor_name           TEXT,
   local_ip              TEXT,
+  token_hash            TEXT,
+  token_issued_at       TIMESTAMPTZ,
+  token_revoked_at      TIMESTAMPTZ,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );

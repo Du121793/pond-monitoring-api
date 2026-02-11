@@ -17,14 +17,21 @@ try {
 const getWebSecret = () => process.env.WEB_JWT_SECRET;
 const getSensorSecret = () => process.env.SENSOR_JWT_SECRET;
 
-const signToken = (payload, secret) => {
+const signToken = (payload, secret, options = {}) => {
   if (!secret) {
     throw new Error("JWT secret is missing");
   }
-  return jwt.sign(payload, secret, {
-    expiresIn: jwtExpiresIn,
+  const jwtOptions = {
     algorithm: "HS256",
-  });
+  };
+  if (Object.prototype.hasOwnProperty.call(options, "expiresIn")) {
+    if (options.expiresIn !== undefined && options.expiresIn !== null) {
+      jwtOptions.expiresIn = options.expiresIn;
+    }
+  } else {
+    jwtOptions.expiresIn = jwtExpiresIn;
+  }
+  return jwt.sign(payload, secret, jwtOptions);
 };
 
 export const createWebToken = ({ user_id }) => {
@@ -39,6 +46,17 @@ export const createSensorToken = ({ user_id, pond_id, sensor_id }) => {
     throw new Error("user_id, pond_id, sensor_id are required");
   }
   return signToken({ user_id, pond_id, sensor_id }, getSensorSecret());
+};
+
+export const createPermanentSensorToken = ({ user_id, pond_id, sensor_id }) => {
+  if (!user_id || !pond_id || !sensor_id) {
+    throw new Error("user_id, pond_id, sensor_id are required");
+  }
+  return signToken(
+    { user_id, pond_id, sensor_id },
+    getSensorSecret(),
+    { expiresIn: null },
+  );
 };
 
 const extractBearerToken = (req) => {

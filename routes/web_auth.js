@@ -10,9 +10,7 @@ const router = express.Router();
 router.post("/register", async (req, res) => {
   const { user_name, password } = req.body;
   if (!user_name || !password) {
-    return res
-      .status(400)
-      .json({ message: "缺少 user_name 或 password" });
+    return res.status(400).json({ message: "缺少 user_name 或 password" });
   }
 
   try {
@@ -44,13 +42,13 @@ router.post("/register", async (req, res) => {
 });
 
 router.post("/login", (req, res, next) => {
-  passport.authenticate("web-local", { session: false }, (err, user, info) => {
+  passport.authenticate("web-local", { session: false }, (err, user, authInfo) => {
     if (err) {
       logError("web-login", err, req);
       return res.status(500).json({ ok: false, message: "登入失敗" });
     }
     if (!user) {
-      return res.status(401).json({ message: info?.message || "登入失敗" });
+      return res.status(401).json({ message: authInfo?.message || "登入失敗" });
     }
 
     const token = createWebToken({ user_id: user.user_id });

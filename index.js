@@ -11,10 +11,13 @@ import sensorsRouter from "./routes/sensors/index.js";
 import webRouter from "./routes/web/index.js";
 import webAuthRouter from "./routes/web_auth.js";
 import passport from "./config/passport.js";
+import cors from "cors";
 
 dotenv.config();
 
 const app = express();
+app.use(cors());
+
 const PORT = Number(process.env.SERVER_PORT) || 3002;
 
 // 使用重試機制連接到 PostgreSQL

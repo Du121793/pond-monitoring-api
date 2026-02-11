@@ -3,16 +3,26 @@ import { Strategy as JwtStrategy, ExtractJwt } from "passport-jwt";
 import { Strategy as LocalStrategy } from "passport-local";
 import bcrypt from "bcrypt";
 import { pool_RW } from "../SQL_Controller/db_connect.js";
+import { isSensorTokenValid } from "../SQL_Controller/sensors.js";
 import { error as logError } from "../methods/logger.js";
 
 const getWebSecret = () => process.env.WEB_JWT_SECRET;
 const getSensorSecret = () => process.env.SENSOR_JWT_SECRET;
 
-const buildJwtOptions = (secret) => ({
+const buildJwtOptions = (secret, passReqToCallback = false) => ({
   jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
   secretOrKey: secret,
   algorithms: ["HS256"],
+  passReqToCallback,
 });
+
+const extractBearerToken = (req) => {
+  const authHeader = req?.headers?.authorization;
+  if (!authHeader) return null;
+  const [scheme, token] = authHeader.split(" ");
+  if (!scheme || scheme.toLowerCase() !== "bearer" || !token) return null;
+  return token;
+};
 
 passport.use(
   "web-local",
@@ -76,21 +86,35 @@ passport.use(
 
 passport.use(
   "jwt-sensor",
-  new JwtStrategy(buildJwtOptions(getSensorSecret()), (payload, done) => {
-    try {
-      if (!payload?.user_id || !payload?.pond_id || !payload?.sensor_id) {
-        return done(null, false, { message: "Invalid token payload" });
+  new JwtStrategy(
+    buildJwtOptions(getSensorSecret(), true),
+    async (req, payload, done) => {
+      try {
+        if (!payload?.user_id || !payload?.pond_id || !payload?.sensor_id) {
+          return done(null, false, { message: "Invalid token payload" });
+        }
+
+        const token = extractBearerToken(req);
+        if (!token) {
+          return done(null, false, { message: "Missing token" });
+        }
+
+        const isValid = await isSensorTokenValid(payload.sensor_id, token);
+        if (!isValid) {
+          return done(null, false, { message: "Token revoked" });
+        }
+
+        return done(null, {
+          user_id: payload.user_id,
+          pond_id: payload.pond_id,
+          sensor_id: payload.sensor_id,
+        });
+      } catch (err) {
+        logError("jwt-sensor", err);
+        return done(err, false);
       }
-      return done(null, {
-        user_id: payload.user_id,
-        pond_id: payload.pond_id,
-        sensor_id: payload.sensor_id,
-      });
-    } catch (err) {
-      logError("jwt-sensor", err);
-      return done(err, false);
     }
-  }),
+  ),
 );
 
 export default passport;
