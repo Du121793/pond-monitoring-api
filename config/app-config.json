@@ -1,5 +1,14 @@
 {
   "auth": {
-    "jwtExpiresIn": "24h"
+    "jwtExpiresIn": "24h",
+    "webJwtExpiresIn": "24h",
+    "webJwtPermanent": true,
+    "allowRegister": false
+  },
+  "access": {
+    "ttlMinutes": 30,
+    "maxRequests": 200,
+    "dataDefaultLimit": 50,
+    "dataMaxLimit": 200
   }
 }

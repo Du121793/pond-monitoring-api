@@ -15,6 +15,55 @@ import sensorsRouter from "./sensors.js";
 
 const router = express.Router();
 
+const roundNumber = (value, decimals) => {
+  if (value === null || value === undefined || value === "") {
+    return value;
+  }
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    return value;
+  }
+  if (decimals <= 0) {
+    return Math.round(numeric);
+  }
+  const factor = 10 ** decimals;
+  return Math.round(numeric * factor) / factor;
+};
+
+const formatSensorDataForWeb = (sensorData) => {
+  if (!sensorData) {
+    return sensorData;
+  }
+  const formatted = { ...sensorData };
+  const twoDecimalFields = [
+    "ph",
+    "turbidity_percent",
+    "turbidity_ntu",
+    "hardness",
+    "ec_us_cm",
+    "orp_mv",
+    "do_mg_l",
+    "do_sat",
+    "temp_deep",
+    "temp_shallow",
+  ];
+  const intFields = ["turbidity_raw", "mq135", "mq137"];
+
+  for (const field of twoDecimalFields) {
+    if (formatted[field] !== undefined) {
+      formatted[field] = roundNumber(formatted[field], 2);
+    }
+  }
+
+  for (const field of intFields) {
+    if (formatted[field] !== undefined) {
+      formatted[field] = roundNumber(formatted[field], 0);
+    }
+  }
+
+  return formatted;
+};
+
 // 所有路由都需要 JWT 認證
 router.use(passport.authenticate("jwt-web", { session: false }));
 
@@ -260,7 +309,7 @@ router.get("/:pondId/latest-data", async (req, res) => {
       message: "成功獲取池塘最新數據",
       data: {
         pond: result.pond,
-        latestSensorData: result.sensorData,
+        latestSensorData: formatSensorDataForWeb(result.sensorData),
         latestDailyLog: result.dailyLog,
         timestamp: new Date().toISOString(),
       },
@@ -311,7 +360,7 @@ router.get("/:pondId/latest-sensor-data", async (req, res) => {
     res.json({
       ok: true,
       message: "成功獲取池塘最新感測器數據",
-      data: result,
+      data: formatSensorDataForWeb(result),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

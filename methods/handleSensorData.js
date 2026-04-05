@@ -9,6 +9,25 @@ import sharp from "sharp";
 const UPLOADS_DIR = "./uploads";
 const MAX_IMAGES = 3;
 
+const toIntegerValue = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return value;
+  }
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    return value;
+  }
+  return Math.round(numeric);
+};
+
+const normalizeIntegerFields = (data, fields) => {
+  for (const field of fields) {
+    if (data[field] !== undefined) {
+      data[field] = toIntegerValue(data[field]);
+    }
+  }
+};
+
 const saveAndProcessImage = async (photoB64) => {
   try {
     const match = String(photoB64).match(/^data:image\/\w+;base64,(.+)$/i);
@@ -92,6 +111,8 @@ export const handleSensorData = async (sensorData) => {
     rgb_g: rgb?.g,
     rgb_b: rgb?.b,
   };
+
+  normalizeIntegerFields(dataToProcess, ["turbidity_raw", "mq135", "mq137"]);
 
   if (date || createdAt) {
     dataToProcess.created_at = date || createdAt;

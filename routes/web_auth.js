@@ -2,12 +2,16 @@ import express from "express";
 import bcrypt from "bcrypt";
 import passport from "../config/passport.js";
 import { pool_RW } from "../SQL_Controller/db_connect.js";
-import { createWebToken } from "../methods/auth.js";
+import { createWebToken, getAuthConfig } from "../methods/auth.js";
 import { info, error as logError } from "../methods/logger.js";
 
 const router = express.Router();
 
 router.post("/register", async (req, res) => {
+  if (!getAuthConfig().allowRegister) {
+    return res.status(403).json({ message: "目前不開放註冊" });
+  }
+
   const { user_name, password } = req.body;
   if (!user_name || !password) {
     return res.status(400).json({ message: "缺少 user_name 或 password" });

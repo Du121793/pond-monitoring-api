@@ -2,13 +2,28 @@ import jwt from "jsonwebtoken";
 import { readFileSync } from "fs";
 import { error as logError } from "./logger.js";
 
-let jwtExpiresIn = "24h";
+const authConfig = {
+  jwtExpiresIn: "24h",
+  webJwtExpiresIn: null,
+  webJwtPermanent: false,
+  allowRegister: true,
+};
+
 try {
   const appConfig = JSON.parse(
     readFileSync(new URL("../config/app-config.json", import.meta.url), "utf8"),
   );
   if (appConfig?.auth?.jwtExpiresIn) {
-    jwtExpiresIn = appConfig.auth.jwtExpiresIn;
+    authConfig.jwtExpiresIn = appConfig.auth.jwtExpiresIn;
+  }
+  if (appConfig?.auth?.webJwtExpiresIn) {
+    authConfig.webJwtExpiresIn = appConfig.auth.webJwtExpiresIn;
+  }
+  if (typeof appConfig?.auth?.webJwtPermanent === "boolean") {
+    authConfig.webJwtPermanent = appConfig.auth.webJwtPermanent;
+  }
+  if (typeof appConfig?.auth?.allowRegister === "boolean") {
+    authConfig.allowRegister = appConfig.auth.allowRegister;
   }
 } catch (err) {
   logError("auth", err);
@@ -29,14 +44,26 @@ const signToken = (payload, secret, options = {}) => {
       jwtOptions.expiresIn = options.expiresIn;
     }
   } else {
-    jwtOptions.expiresIn = jwtExpiresIn;
+    jwtOptions.expiresIn = authConfig.jwtExpiresIn;
   }
   return jwt.sign(payload, secret, jwtOptions);
 };
 
+export const getAuthConfig = () => ({ ...authConfig });
+
 export const createWebToken = ({ user_id }) => {
   if (!user_id) {
     throw new Error("user_id is required");
+  }
+  if (authConfig.webJwtPermanent) {
+    return signToken({ user_id }, getWebSecret(), { expiresIn: null });
+  }
+  if (authConfig.webJwtExpiresIn) {
+    return signToken(
+      { user_id },
+      getWebSecret(),
+      { expiresIn: authConfig.webJwtExpiresIn },
+    );
   }
   return signToken({ user_id }, getWebSecret());
 };

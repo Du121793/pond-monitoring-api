@@ -10,8 +10,13 @@ import { info, error as logError } from "./methods/logger.js";
 import sensorsRouter from "./routes/sensors/index.js";
 import webRouter from "./routes/web/index.js";
 import webAuthRouter from "./routes/web_auth.js";
+import sharedRouter from "./routes/shared/index.js";
+import webhookRouter from "./routes/webhook/index.js";
 import passport from "./config/passport.js";
 import cors from "cors";
+import { deleteExpiredAccessKeys } from "./SQL_Controller/access_keys.js";
+import { initializePushService } from "./methods/notifications/pushService.js";
+import { startOutboxWorker } from "./methods/notifications/outboxWorker.js";
 
 dotenv.config();
 
@@ -41,9 +46,22 @@ app.use(passport.initialize());
 app.use("/sensors", sensorsRouter);
 app.use("/web", webRouter);
 app.use("/web_auth", webAuthRouter);
+app.use("/shared", sharedRouter);
+app.use("/webhook", webhookRouter);
+
+const cleanupAccessIntervalMs = 10 * 60 * 1000;
+setInterval(async () => {
+  try {
+    await deleteExpiredAccessKeys();
+  } catch (err) {
+    logError("access-cleanup", err);
+  }
+}, cleanupAccessIntervalMs);
 
 app.listen(PORT, async () => {
   info("系統", `伺服器正在監聽 port ${PORT}`);
+  initializePushService();
+  startOutboxWorker();
   // 初始化天氣服務
   if (process.env.WEATHER_API_KEY) {
     info("系統", "[啟動] 正在初始化天氣服務...");

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS sensor_data (
   hardness              DOUBLE PRECISION,
   ec_us_cm              DOUBLE PRECISION,
   orp_mv                DOUBLE PRECISION,
+  do_mg_l               DOUBLE PRECISION,
+  do_sat                DOUBLE PRECISION,
   mq135                 INTEGER,
   mq137                 INTEGER,
   temp_deep             DOUBLE PRECISION,

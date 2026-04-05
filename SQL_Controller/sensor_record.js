@@ -10,6 +10,8 @@ const ALL_COLUMNS = [
   "hardness",
   "ec_us_cm",
   "orp_mv",
+  "do_mg_l",
+  "do_sat",
   "mq135",
   "mq137",
   "temp_deep",

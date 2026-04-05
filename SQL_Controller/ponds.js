@@ -12,6 +12,17 @@ export const getUserPonds = async (userId) => {
   return rows;
 };
 
+export const getPondOwnerId = async (pondId) => {
+  const query = `
+    SELECT user_id
+    FROM ponds
+    WHERE id = $1
+    LIMIT 1
+  `;
+  const { rows } = await pool_RO.query(query, [pondId]);
+  return rows[0]?.user_id ?? null;
+};
+
 export const checkPondOwnership = async (pondId, userId) => {
   const query = `
     SELECT 1

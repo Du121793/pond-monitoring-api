@@ -3,3 +3,6 @@ export * from './sensor_record.js';
 export * from './sensors.js';
 export * from './ponds.js';
 export * from './daily_logs.js';
+export * from './access_keys.js';
+export * from './shared_data.js';
+export * from './notifications.js';

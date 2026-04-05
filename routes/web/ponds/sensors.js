@@ -18,6 +18,7 @@ const router = express.Router({ mergeParams: true });
 // 獲取池塘的所有感測器
 router.get("/", async (req, res) => {
   try {
+    res.set("Cache-Control", "no-store");
     const userId = req.user.user_id;
     const pondId = req.params.pondId;
 
@@ -48,6 +49,7 @@ router.get("/", async (req, res) => {
 // 獲取特定感測器詳情
 router.get("/:sensorId", async (req, res) => {
   try {
+    res.set("Cache-Control", "no-store");
     const userId = req.user.user_id;
     const pondId = req.params.pondId;
     const sensorId = req.params.sensorId;
