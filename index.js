@@ -1,5 +1,9 @@
 import express from "express";
 import dotenv from "dotenv";
+
+import cookieParser from "cookie-parser";
+import { createProxyMiddleware } from "http-proxy-middleware";
+
 import { pool_RW } from "./SQL_Controller/db_connect.js";
 import {
   initializeWeatherTool,
@@ -17,11 +21,13 @@ import cors from "cors";
 import { deleteExpiredAccessKeys } from "./SQL_Controller/access_keys.js";
 import { initializePushService } from "./methods/notifications/pushService.js";
 import { startOutboxWorker } from "./methods/notifications/outboxWorker.js";
+import { requireGrafanaBridge } from "./methods/auth.js";
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
+app.use(cookieParser());
 
 const PORT = Number(process.env.SERVER_PORT) || 3002;
 
@@ -38,8 +44,39 @@ const connectWithRetry = () => {
     }
   });
 };
-
 connectWithRetry();
+
+app.use(
+  "/grafana",
+  requireGrafanaBridge,
+  createProxyMiddleware({
+    target: process.env.GRAFANA_URL,
+    changeOrigin: false,
+    xfwd: true,
+    ws: true,
+    pathRewrite: (path) => `/api/grafana${path}`,
+    on: {
+      proxyReq: (proxyReq, req) => {
+        // 固定 Grafana 身份
+        proxyReq.setHeader("X-WEBAUTH-USER", "admin");
+
+        // 依照網站使用者身份
+        //proxyReq.setHeader("X-WEBAUTH-USER", req.grafanaUser.user_name);
+
+        if (req.headers.host) {
+          proxyReq.setHeader("X-Forwarded-Host", req.headers.host);
+        }
+        proxyReq.setHeader("X-Forwarded-Proto", "https");
+      },
+      error: (err, req, res) => {
+        console.error("grafana proxy error:", err);
+        if (!res.headersSent) {
+          res.status(502).json({ error: "Grafana proxy failed" });
+        }
+      },
+    },
+  }),
+);
 
 app.use(express.json());
 app.use(passport.initialize());

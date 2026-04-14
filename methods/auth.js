@@ -59,11 +59,9 @@ export const createWebToken = ({ user_id }) => {
     return signToken({ user_id }, getWebSecret(), { expiresIn: null });
   }
   if (authConfig.webJwtExpiresIn) {
-    return signToken(
-      { user_id },
-      getWebSecret(),
-      { expiresIn: authConfig.webJwtExpiresIn },
-    );
+    return signToken({ user_id }, getWebSecret(), {
+      expiresIn: authConfig.webJwtExpiresIn,
+    });
   }
   return signToken({ user_id }, getWebSecret());
 };
@@ -79,11 +77,9 @@ export const createPermanentSensorToken = ({ user_id, pond_id, sensor_id }) => {
   if (!user_id || !pond_id || !sensor_id) {
     throw new Error("user_id, pond_id, sensor_id are required");
   }
-  return signToken(
-    { user_id, pond_id, sensor_id },
-    getSensorSecret(),
-    { expiresIn: null },
-  );
+  return signToken({ user_id, pond_id, sensor_id }, getSensorSecret(), {
+    expiresIn: null,
+  });
 };
 
 const extractBearerToken = (req) => {
@@ -143,3 +139,18 @@ export const requireSensorAuth = createAuthMiddleware({
   requiredFields: ["user_id", "pond_id", "sensor_id"],
   actor: "sensor-auth",
 });
+
+export const requireGrafanaBridge = (req, res, next) => {
+  const token = req.cookies?.grafana_bridge;
+  if (!token) {
+    return res.status(401).send("Unauthorized");
+  }
+
+  try {
+    const payload = jwt.verify(token, process.env.GRAFANA_BRIDGE_SECRET);
+    req.grafanaUser = payload;
+    next();
+  } catch (err) {
+    return res.status(401).send("Unauthorized");
+  }
+};

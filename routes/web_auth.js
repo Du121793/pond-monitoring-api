@@ -1,11 +1,17 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import passport from "../config/passport.js";
+import dotenv from "dotenv";
 import { pool_RW } from "../SQL_Controller/db_connect.js";
 import { createWebToken, getAuthConfig } from "../methods/auth.js";
 import { info, error as logError } from "../methods/logger.js";
+import jwt from "jsonwebtoken";
+import cookieParser from "cookie-parser";
+
+dotenv.config();
 
 const router = express.Router();
+router.use(cookieParser());
 
 router.post("/register", async (req, res) => {
   if (!getAuthConfig().allowRegister) {
@@ -46,27 +52,60 @@ router.post("/register", async (req, res) => {
 });
 
 router.post("/login", (req, res, next) => {
-  passport.authenticate("web-local", { session: false }, (err, user, authInfo) => {
-    if (err) {
-      logError("web-login", err, req);
-      return res.status(500).json({ ok: false, message: "登入失敗" });
-    }
-    if (!user) {
-      return res.status(401).json({ message: authInfo?.message || "登入失敗" });
-    }
+  passport.authenticate(
+    "web-local",
+    { session: false },
+    (err, user, authInfo) => {
+      if (err) {
+        logError("web-login", err, req);
+        return res.status(500).json({ ok: false, message: "登入失敗" });
+      }
+      if (!user) {
+        return res
+          .status(401)
+          .json({ message: authInfo?.message || "登入失敗" });
+      }
 
-    const token = createWebToken({ user_id: user.user_id });
-    info(user.user_id, "網頁登入已簽發 token", req.ip);
-    return res.json({
-      ok: true,
-      token,
-      user: {
-        user_id: user.user_id,
-        user_name: user.user_name,
-        created_at: user.created_at,
-      },
-    });
-  })(req, res, next);
+      const token = createWebToken({ user_id: user.user_id });
+      info(user.user_id, "網頁登入已簽發 token", req.ip);
+      return res.json({
+        ok: true,
+        token,
+        user: {
+          user_id: user.user_id,
+          user_name: user.user_name,
+          created_at: user.created_at,
+        },
+      });
+    },
+  )(req, res, next);
 });
 
+const webTokenChecker = passport.authenticate("jwt-web", { session: false });
+
+router.post("/grafana_bootstrap", webTokenChecker, (req, res) => {
+  try {
+    // 這裡可以只放最小資訊
+    const grafanaToken = jwt.sign(
+      {
+        user_id: req.user.user_id,
+        user_name: req.user.user_name,
+      },
+      process.env.GRAFANA_BRIDGE_SECRET,
+      { expiresIn: "10m" },
+    );
+
+    res.cookie("grafana_bridge", grafanaToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/api/grafana",
+      maxAge: 10 * 60 * 1000,
+    });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+});
 export default router;
