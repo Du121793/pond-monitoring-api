@@ -1,4 +1,5 @@
 export * from './weatherQueries.js';
+export * from './weatherObservationRawQueries.js';
 export * from './sensor_record.js';
 export * from './sensors.js';
 export * from './ponds.js';

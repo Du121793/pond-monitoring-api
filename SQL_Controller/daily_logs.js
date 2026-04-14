@@ -15,6 +15,23 @@ export const getTodayDailyLog = async (pondId) => {
   return rows[0] || null;
 };
 
+export const getPondsMissingDailyLog = async (targetDate) => {
+  const query = `
+    SELECT
+      p.id AS pond_id,
+      p.user_id,
+      p.pond_name
+    FROM ponds p
+    LEFT JOIN pond_daily_logs l
+      ON l.pond_id = p.id
+     AND l.log_date = $1::date
+    WHERE l.id IS NULL
+    ORDER BY p.id ASC
+  `;
+  const { rows } = await pool_RO.query(query, [targetDate]);
+  return rows;
+};
+
 export const getPondDailyLogs = async (
   pondId,
   { limit = 30, offset = 0, start_date, end_date } = {}

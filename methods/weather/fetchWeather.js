@@ -161,9 +161,7 @@ export class WeatherModule {
 
       const target =
         list.find((x) => this.normalizeHan(x.locationName) === want) ||
-        list.find((x) =>
-          this.normalizeHan(x.locationName || "").includes(want)
-        ) ||
+        list.find((x) => this.normalizeHan(x.locationName || "").includes(want)) ||
         list[0];
 
       if (!target) {
@@ -190,7 +188,7 @@ export class WeatherModule {
         "12小時降雨機率": "PrecipitationProbability12h",
         天氣現象: "WeatherCode",
         紫外線指數: "UVIndex",
-        天氣預報綜合描述: "__DROP__", // 忽略此欄位
+        天氣預報綜合描述: "__DROP__",
       };
       const toNumberIfNumeric = (v) => {
         if (typeof v === "number") return v;
@@ -514,22 +512,45 @@ export class WeatherModule {
       });
 
       const weatherData = this.parseHistoricalData(records, targetDate);
+      return this.normalizeHistoricalWeatherData(
+        weatherData,
+        targetDate.toISOString()
+      );
+    } catch (e) {
+      error("系統", e);
+      return {
+        success: false,
+        error: e.message,
+        date: targetDate.toISOString().split("T")[0],
+        station: { id: station, type: "surface" },
+        queryTime: queryStartTime.toISOString(),
+      };
+    }
+  }
 
-      const historyObj = {};
-      for (const key in weatherData) {
-        if (!/\w/.test(key)) continue;
+  async getHistoricalWeatherByDay(date, stationId = null) {
+    const targetDate = new Date(date);
+    if (Number.isNaN(targetDate.getTime())) {
+      throw new Error("無效的日期格式");
+    }
 
-        let v = weatherData[key];
-        if (key === "WindDirection") {
-          v = String(v).split(",")[0];
-        } else {
-          v = this.toNumberIfNumeric(v);
-        }
-        historyObj[key] = v;
-      }
-      historyObj.DateTime = targetDate.toISOString();
+    const station = stationId || this.defaultStations.surface;
+    const queryStartTime = new Date();
 
-      return historyObj;
+    try {
+      const dayStart = new Date(targetDate);
+      dayStart.setHours(0, 0, 0, 0);
+
+      const dayEnd = new Date(targetDate);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const records = await this.fetchData(DATASETS.HISTORICAL.SURFACE_HOURLY, {
+        stationId: station,
+        timeFrom: dayStart.toISOString(),
+        timeTo: dayEnd.toISOString(),
+      });
+
+      return this.parseHistoricalObservations(records, dayStart, dayEnd);
     } catch (e) {
       error("系統", e);
       return {
@@ -551,8 +572,25 @@ export class WeatherModule {
     return v;
   }
 
-  // 解析歷史資料
-  parseHistoricalData(records, targetDate) {
+  normalizeHistoricalWeatherData(weatherData, fallbackDateTime = null) {
+    const historyObj = {};
+    for (const key in weatherData || {}) {
+      if (!/\w/.test(key)) continue;
+
+      let v = weatherData[key];
+      if (key === "WindDirection") {
+        v = String(v).split(",")[0];
+      } else if (key !== "DateTime") {
+        v = this.toNumberIfNumeric(v);
+      }
+      historyObj[key] = v;
+    }
+
+    historyObj.DateTime = weatherData?.DateTime || fallbackDateTime;
+    return historyObj;
+  }
+
+  extractHistoricalLocation(records) {
     let locations = [];
     if (records.locations?.location) {
       locations = Array.isArray(records.locations.location)
@@ -568,46 +606,78 @@ export class WeatherModule {
         : [records.Station];
     }
 
-    if (locations.length === 0) {
-      return {};
+    return locations[0] || null;
+  }
+
+  parseHistoricalObservations(records, rangeStart = null, rangeEnd = null) {
+    const location = this.extractHistoricalLocation(records);
+    if (!location?.stationObsTimes?.stationObsTime) {
+      return [];
     }
 
-    const location = locations[0];
-    let weatherData = {};
+    const obsTimes = Array.isArray(location.stationObsTimes.stationObsTime)
+      ? location.stationObsTimes.stationObsTime
+      : [location.stationObsTimes.stationObsTime];
 
-    if (location.stationObsTimes?.stationObsTime) {
-      const obsTimes = Array.isArray(location.stationObsTimes.stationObsTime)
-        ? location.stationObsTimes.stationObsTime
-        : [location.stationObsTimes.stationObsTime];
+    const startMs = rangeStart ? rangeStart.getTime() : null;
+    const endMs = rangeEnd ? rangeEnd.getTime() : null;
+    const seen = new Set();
 
+    return obsTimes
+      .map((obs) =>
+        this.normalizeHistoricalWeatherData(
+          this.parseObsTimeData(obs),
+          obs.DateTime
+        )
+      )
+      .filter((obs) => obs?.DateTime)
+      .filter((obs) => {
+        const obsMs = new Date(obs.DateTime).getTime();
+        if (Number.isNaN(obsMs)) {
+          return false;
+        }
+        if (startMs !== null && obsMs < startMs) {
+          return false;
+        }
+        if (endMs !== null && obsMs > endMs) {
+          return false;
+        }
+        if (seen.has(obs.DateTime)) {
+          return false;
+        }
+        seen.add(obs.DateTime);
+        return true;
+      })
+      .sort(
+        (a, b) => new Date(a.DateTime).getTime() - new Date(b.DateTime).getTime()
+      );
+  }
+
+  // 解析歷史資料
+  parseHistoricalData(records, targetDate) {
+    const observations = this.parseHistoricalObservations(records);
+    if (observations.length > 0) {
       const targetTime = targetDate.getTime();
-      let closestObs = null;
-      let minDiff = Infinity;
+      let closestObs = observations[0];
+      let minDiff = Math.abs(new Date(closestObs.DateTime).getTime() - targetTime);
 
-      for (const obs of obsTimes) {
-        if (obs.DateTime) {
-          const obsTime = new Date(obs.DateTime).getTime();
-          const diff = Math.abs(obsTime - targetTime);
-          if (diff < minDiff) {
-            minDiff = diff;
-            closestObs = obs;
-          }
+      for (const obs of observations) {
+        const diff = Math.abs(new Date(obs.DateTime).getTime() - targetTime);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestObs = obs;
         }
       }
 
-      if (closestObs) {
-        weatherData = this.parseObsTimeData(closestObs);
-      }
+      return closestObs;
     }
 
-    if (
-      Object.keys(weatherData).length === 0 &&
-      location.stationObsStatistics
-    ) {
-      weatherData = this.parseObsStatistics(location.stationObsStatistics);
+    const location = this.extractHistoricalLocation(records);
+    if (location?.stationObsStatistics) {
+      return this.parseObsStatistics(location.stationObsStatistics);
     }
 
-    return weatherData;
+    return {};
   }
 
   // 清理降水資料

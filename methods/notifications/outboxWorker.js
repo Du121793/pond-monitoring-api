@@ -4,7 +4,7 @@ import {
   updateNotificationOutboxAttempt,
   markGrafanaAlertNotified,
 } from "../../SQL_Controller/notifications.js";
-import { info, error as logError } from "../logger.js";
+import { error as logError } from "../logger.js";
 import { isPushServiceReady, sendPushNotification } from "./pushService.js";
 
 const parseNumberEnv = (value, fallback) => {
@@ -93,26 +93,4 @@ export const processOutboxOnce = async () => {
   }
 
   return { processed: items.length };
-};
-
-export const startOutboxWorker = () => {
-  const intervalMs = parseNumberEnv(process.env.NOTIFICATION_OUTBOX_INTERVAL_MS, 10000);
-  let running = false;
-
-  setInterval(async () => {
-    if (running) {
-      return;
-    }
-    running = true;
-    try {
-      const result = await processOutboxOnce();
-      if (result?.processed) {
-        info("outbox-worker", `processed ${result.processed}`);
-      }
-    } catch (err) {
-      logError("outbox-worker", err);
-    } finally {
-      running = false;
-    }
-  }, intervalMs);
 };

@@ -61,7 +61,7 @@ export const markPushSubscriptionFailed = async (endpoint) => {
     WHERE endpoint = $1
     RETURNING *
   `;
-  const { rows } = await pool_RW.query(query, [endpoint, statusCode]);
+  const { rows } = await pool_RW.query(query, [endpoint]);
   return rows[0] || null;
 };
 
