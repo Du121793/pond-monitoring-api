@@ -7,6 +7,8 @@ DROP TABLE IF EXISTS access_keys CASCADE;
 DROP TABLE IF EXISTS notification_outbox CASCADE;
 DROP TABLE IF EXISTS grafana_alert_events CASCADE;
 DROP TABLE IF EXISTS push_subscriptions CASCADE;
+DROP TABLE IF EXISTS daily_log_items CASCADE;
+DROP TABLE IF EXISTS daily_log_option_catalog CASCADE;
 DROP TABLE IF EXISTS pond_daily_logs CASCADE;
 DROP TABLE IF EXISTS ponds CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
@@ -55,7 +57,7 @@ END $$;
 -- Ponds
 CREATE TABLE IF NOT EXISTS ponds (
   id                    BIGSERIAL PRIMARY KEY,
-  user_id               BIGINT NOT NULL,
+  user_id               BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   pond_name             TEXT NOT NULL,
   pond_length           DOUBLE PRECISION NOT NULL CHECK (pond_length > 0),
   pond_width            DOUBLE PRECISION NOT NULL CHECK (pond_width > 0),
@@ -87,7 +89,7 @@ END $$;
 -- Sensors
 CREATE TABLE IF NOT EXISTS sensors (
   id                    BIGSERIAL PRIMARY KEY,
-  pond_id               BIGINT NOT NULL,
+  pond_id               BIGINT NOT NULL REFERENCES ponds(id) ON DELETE CASCADE,
   sensor_name           TEXT,
   local_ip              TEXT,
   token_hash            TEXT,
@@ -116,7 +118,7 @@ END $$;
 -- Access Keys
 CREATE TABLE IF NOT EXISTS access_keys (
   id                    BIGSERIAL PRIMARY KEY,
-  user_id               BIGINT NOT NULL,
+  user_id               BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   access_hash           TEXT NOT NULL,
   access_preview        TEXT,
   pond_ids              BIGINT[] NOT NULL DEFAULT '{}',
@@ -151,7 +153,7 @@ END $$;
 -- Push Subscriptions
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id               BIGSERIAL PRIMARY KEY,
-  user_id          BIGINT NOT NULL REFERENCES users(id),
+  user_id          BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   endpoint         TEXT NOT NULL UNIQUE,
   p256dh           TEXT NOT NULL,
   auth             TEXT NOT NULL,
@@ -191,8 +193,8 @@ CREATE TABLE IF NOT EXISTS grafana_alert_events (
   fingerprint      TEXT NOT NULL,
   status           TEXT NOT NULL,
   severity         TEXT,
-  pond_id          BIGINT,
-  user_id          BIGINT,
+  pond_id          BIGINT REFERENCES ponds(id) ON DELETE SET NULL,
+  user_id          BIGINT REFERENCES users(id) ON DELETE SET NULL,
   labels           JSONB NOT NULL,
   annotations      JSONB,
   starts_at        TIMESTAMPTZ,
@@ -227,8 +229,8 @@ END $$;
 -- Notification Outbox
 CREATE TABLE IF NOT EXISTS notification_outbox (
   id                BIGSERIAL PRIMARY KEY,
-  event_id          BIGINT REFERENCES grafana_alert_events(id),
-  user_id           BIGINT NOT NULL REFERENCES users(id),
+  event_id          BIGINT REFERENCES grafana_alert_events(id) ON DELETE SET NULL,
+  user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   payload           JSONB NOT NULL,
   status            TEXT NOT NULL DEFAULT 'pending',
   attempts          INTEGER NOT NULL DEFAULT 0,
@@ -246,7 +248,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_outbox_pending
 -- Sensor Data
 CREATE TABLE IF NOT EXISTS sensor_data (
   id                    BIGSERIAL PRIMARY KEY,
-  sensor_id             BIGINT NOT NULL REFERENCES sensors(id),
+  sensor_id             BIGINT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
   fk_weather_actual_id  BIGINT,
   fk_weather_pred_id    BIGINT,
   ph                    DOUBLE PRECISION,
@@ -290,21 +292,20 @@ END $$;
 -- Pond Daily Logs
 CREATE TABLE IF NOT EXISTS pond_daily_logs (
   id                    BIGSERIAL PRIMARY KEY,
-  pond_id               BIGINT NOT NULL,
+  pond_id               BIGINT NOT NULL REFERENCES ponds(id) ON DELETE CASCADE,
   feeding_amount        DOUBLE PRECISION DEFAULT 0 CHECK (feeding_amount >= 0),
   death_count           INTEGER DEFAULT 0 CHECK (death_count >= 0),
-  medication_given      BOOLEAN DEFAULT FALSE,
-  medication_type       TEXT,
   notes                 TEXT,
   log_date              DATE NOT NULL,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pdl_pond_log_date
+  ON pond_daily_logs (pond_id, log_date);
 CREATE INDEX IF NOT EXISTS idx_pdl_pond_id ON pond_daily_logs (pond_id);
 CREATE INDEX IF NOT EXISTS idx_pdl_log_date ON pond_daily_logs (log_date);
 CREATE INDEX IF NOT EXISTS idx_pdl_created_at ON pond_daily_logs (created_at);
-CREATE INDEX IF NOT EXISTS idx_pdl_pond_date ON pond_daily_logs (pond_id, log_date);
 
 DO $$
 BEGIN
@@ -387,6 +388,106 @@ BEGIN
   ) THEN
     EXECUTE 'CREATE TRIGGER set_updated_at_wa
              BEFORE UPDATE ON weather_actual
+             FOR EACH ROW
+             EXECUTE FUNCTION trg_set_updated_at()';
+  END IF;
+END $$;
+
+ALTER TABLE sensor_data
+  DROP CONSTRAINT IF EXISTS fk_sensor_data_weather_actual;
+
+ALTER TABLE sensor_data
+  ADD CONSTRAINT fk_sensor_data_weather_actual
+  FOREIGN KEY (fk_weather_actual_id)
+  REFERENCES weather_actual(id)
+  ON DELETE SET NULL;
+
+ALTER TABLE sensor_data
+  DROP CONSTRAINT IF EXISTS fk_sensor_data_weather_pred;
+
+ALTER TABLE sensor_data
+  ADD CONSTRAINT fk_sensor_data_weather_pred
+  FOREIGN KEY (fk_weather_pred_id)
+  REFERENCES weather_pred(id)
+  ON DELETE SET NULL;
+
+-- Daily Log Option Catalog
+CREATE TABLE IF NOT EXISTS daily_log_option_catalog (
+  id           BIGSERIAL PRIMARY KEY,
+  category     TEXT NOT NULL CHECK (
+    category IN ('feed_additive', 'pond_medication', 'maintenance_material')
+  ),
+  name         TEXT NOT NULL,
+  default_unit TEXT,
+  scope        TEXT NOT NULL CHECK (scope IN ('global', 'user')),
+  user_id      BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_daily_log_option_scope_user
+    CHECK (
+      (scope = 'global' AND user_id IS NULL) OR
+      (scope = 'user' AND user_id IS NOT NULL)
+    )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_log_option_global_name
+  ON daily_log_option_catalog (category, lower(name))
+  WHERE scope = 'global';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_log_option_user_name
+  ON daily_log_option_catalog (user_id, category, lower(name))
+  WHERE scope = 'user';
+CREATE INDEX IF NOT EXISTS idx_daily_log_option_user_category
+  ON daily_log_option_catalog (user_id, category);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    WHERE t.tgname = 'set_updated_at_daily_log_option_catalog'
+      AND c.relname = 'daily_log_option_catalog'
+  ) THEN
+    EXECUTE 'CREATE TRIGGER set_updated_at_daily_log_option_catalog
+             BEFORE UPDATE ON daily_log_option_catalog
+             FOR EACH ROW
+             EXECUTE FUNCTION trg_set_updated_at()';
+  END IF;
+END $$;
+
+-- Daily Log Items
+CREATE TABLE IF NOT EXISTS daily_log_items (
+  id                 BIGSERIAL PRIMARY KEY,
+  daily_log_id       BIGINT NOT NULL REFERENCES pond_daily_logs(id) ON DELETE CASCADE,
+  catalog_id         BIGINT REFERENCES daily_log_option_catalog(id) ON DELETE SET NULL,
+  item_name_snapshot TEXT NOT NULL,
+  category           TEXT NOT NULL CHECK (
+    category IN ('feed_additive', 'pond_medication', 'maintenance_material')
+  ),
+  dosage             NUMERIC(14, 4),
+  unit               TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_daily_log_items_dosage_non_negative
+    CHECK (dosage IS NULL OR dosage >= 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_log_item_per_log_name
+  ON daily_log_items (daily_log_id, category, lower(item_name_snapshot));
+CREATE INDEX IF NOT EXISTS idx_daily_log_items_daily_log_id
+  ON daily_log_items (daily_log_id);
+CREATE INDEX IF NOT EXISTS idx_daily_log_items_catalog_id
+  ON daily_log_items (catalog_id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    WHERE t.tgname = 'set_updated_at_daily_log_items' AND c.relname = 'daily_log_items'
+  ) THEN
+    EXECUTE 'CREATE TRIGGER set_updated_at_daily_log_items
+             BEFORE UPDATE ON daily_log_items
              FOR EACH ROW
              EXECUTE FUNCTION trg_set_updated_at()';
   END IF;

@@ -1,9 +1,14 @@
 BEGIN;
 
--- Push Subscriptions
+CREATE OR REPLACE FUNCTION trg_set_updated_at() RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id               BIGSERIAL PRIMARY KEY,
-  user_id          BIGINT NOT NULL REFERENCES users(id),
+  user_id          BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   endpoint         TEXT NOT NULL UNIQUE,
   p256dh           TEXT NOT NULL,
   auth             TEXT NOT NULL,
@@ -35,7 +40,6 @@ BEGIN
   END IF;
 END $$;
 
--- Grafana Alert Events
 CREATE TABLE IF NOT EXISTS grafana_alert_events (
   id               BIGSERIAL PRIMARY KEY,
   source           TEXT NOT NULL DEFAULT 'grafana',
@@ -43,8 +47,8 @@ CREATE TABLE IF NOT EXISTS grafana_alert_events (
   fingerprint      TEXT NOT NULL,
   status           TEXT NOT NULL,
   severity         TEXT,
-  pond_id          BIGINT,
-  user_id          BIGINT,
+  pond_id          BIGINT REFERENCES ponds(id) ON DELETE SET NULL,
+  user_id          BIGINT REFERENCES users(id) ON DELETE SET NULL,
   labels           JSONB NOT NULL,
   annotations      JSONB,
   starts_at        TIMESTAMPTZ,
@@ -59,7 +63,6 @@ CREATE TABLE IF NOT EXISTS grafana_alert_events (
 
 CREATE INDEX IF NOT EXISTS idx_grafana_alert_events_status
   ON grafana_alert_events (status);
-
 CREATE INDEX IF NOT EXISTS idx_grafana_alert_events_user
   ON grafana_alert_events (user_id);
 
@@ -77,11 +80,10 @@ BEGIN
   END IF;
 END $$;
 
--- Notification Outbox
 CREATE TABLE IF NOT EXISTS notification_outbox (
   id                BIGSERIAL PRIMARY KEY,
-  event_id          BIGINT REFERENCES grafana_alert_events(id),
-  user_id           BIGINT NOT NULL REFERENCES users(id),
+  event_id          BIGINT REFERENCES grafana_alert_events(id) ON DELETE SET NULL,
+  user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   payload           JSONB NOT NULL,
   status            TEXT NOT NULL DEFAULT 'pending',
   attempts          INTEGER NOT NULL DEFAULT 0,

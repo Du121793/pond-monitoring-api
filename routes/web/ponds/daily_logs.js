@@ -1,9 +1,10 @@
 import express from "express";
 import {
-  getPoolRW,
-  getTodayDailyLog,
+  DAILY_LOG_ERRORS,
   checkPondOwnership,
   getPondDailyLogs,
+  getTodayDailyLog,
+  getDailyLogById,
   createDailyLog,
   updateDailyLog,
   deleteDailyLog,
@@ -11,23 +12,88 @@ import {
 
 const router = express.Router({ mergeParams: true });
 
-// 獲取池塘的所有日常記錄
+const buildErrorResponse = (res, error) => {
+  switch (error.message) {
+    case DAILY_LOG_ERRORS.DUPLICATE:
+      return res.status(409).json({
+        ok: false,
+        error: "同一個池塘在同一天只能有一筆每日紀錄",
+      });
+    case DAILY_LOG_ERRORS.NOT_FOUND:
+      return res.status(404).json({
+        ok: false,
+        error: "找不到指定的每日紀錄",
+      });
+    case DAILY_LOG_ERRORS.INVALID_CATEGORY:
+      return res.status(400).json({
+        ok: false,
+        error: "投入項目的分類無效",
+      });
+    case DAILY_LOG_ERRORS.CATEGORY_MISMATCH:
+      return res.status(400).json({
+        ok: false,
+        error: "投入項目的分類與選項庫不一致",
+      });
+    case DAILY_LOG_ERRORS.INVALID_DOSAGE:
+      return res.status(400).json({
+        ok: false,
+        error: "劑量必須是大於或等於 0 的數值",
+      });
+    case DAILY_LOG_ERRORS.ITEM_NAME_REQUIRED:
+      return res.status(400).json({
+        ok: false,
+        error: "投入項目名稱不能為空",
+      });
+    case DAILY_LOG_ERRORS.CATALOG_NOT_FOUND:
+    case DAILY_LOG_ERRORS.INVALID_CATALOG_ID:
+      return res.status(400).json({
+        ok: false,
+        error: "投入項目選項不存在或無權使用",
+      });
+    default:
+      return null;
+  }
+};
+
+const validateBaseFields = (body, { requireLogDate = false } = {}) => {
+  const { log_date, feeding_amount, death_count, items } = body;
+
+  if (requireLogDate && !log_date) {
+    return "log_date 為必填欄位";
+  }
+
+  if (
+    feeding_amount !== undefined &&
+    (!Number.isFinite(Number(feeding_amount)) || Number(feeding_amount) < 0)
+  ) {
+    return "feeding_amount 必須是大於或等於 0 的數值";
+  }
+
+  if (
+    death_count !== undefined &&
+    (!Number.isInteger(Number(death_count)) || Number(death_count) < 0)
+  ) {
+    return "death_count 必須是大於或等於 0 的整數";
+  }
+
+  if (items !== undefined && !Array.isArray(items)) {
+    return "items 必須是陣列";
+  }
+
+  return null;
+};
+
 router.get("/", async (req, res) => {
   try {
     const userId = req.user.user_id;
     const pondId = req.params.pondId;
     const { limit = 30, offset = 0, start_date, end_date } = req.query;
 
-    // 檢查池塘權限
     const hasAccess = await checkPondOwnership(pondId, userId);
     if (!hasAccess) {
-      return res.status(404).json({
-        ok: false,
-        error: "池塘不存在或您沒有權限訪問",
-      });
+      return res.status(404).json({ ok: false, error: "找不到指定的池塘" });
     }
 
-    // 獲取日常記錄
     const result = await getPondDailyLogs(pondId, {
       limit,
       offset,
@@ -35,7 +101,7 @@ router.get("/", async (req, res) => {
       end_date,
     });
 
-    res.json({
+    return res.json({
       ok: true,
       logs: result.logs,
       count: result.count,
@@ -43,303 +109,190 @@ router.get("/", async (req, res) => {
       pagination: result.pagination,
     });
   } catch (error) {
-    console.error("獲取日常記錄錯誤:", error);
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
-      error: "獲取日常記錄失敗",
+      error: "取得每日紀錄失敗",
       detail: error.message,
     });
   }
 });
 
-// 獲取池塘今日的日常記錄
 router.get("/today", async (req, res) => {
   try {
     const userId = req.user.user_id;
     const pondId = req.params.pondId;
 
-    // 檢查池塘權限
     const hasAccess = await checkPondOwnership(pondId, userId);
     if (!hasAccess) {
-      return res.status(404).json({
-        ok: false,
-        error: "池塘不存在或您沒有權限訪問",
-      });
+      return res.status(404).json({ ok: false, error: "找不到指定的池塘" });
     }
 
-    // 獲取今日的日常記錄
     const todayLog = await getTodayDailyLog(pondId);
-
     if (!todayLog) {
-      return res.status(404).json({
-        ok: false,
-        error: "今日尚無日常記錄",
-      });
+      return res.status(404).json({ ok: false, error: "今天尚未建立每日紀錄" });
     }
 
-    res.json({
+    return res.json({
       ok: true,
-      message: "成功獲取今日日常記錄",
       data: todayLog,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("獲取今日日常記錄錯誤:", error);
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
-      error: "獲取今日日常記錄失敗",
+      error: "取得今日每日紀錄失敗",
       detail: error.message,
     });
   }
 });
 
-// 獲取特定日常記錄詳情
 router.get("/:logId", async (req, res) => {
   try {
     const userId = req.user.user_id;
     const pondId = req.params.pondId;
     const logId = req.params.logId;
-    const client = await getPoolRW().connect();
 
-    try {
-      // 先驗證池塘是否屬於該用戶
-      const pondCheck = await client.query(
-        "SELECT id FROM ponds WHERE id = $1 AND user_id = $2",
-        [pondId, userId]
-      );
-
-      if (pondCheck.rows.length === 0) {
-        return res.status(404).json({
-          ok: false,
-          error: "池塘不存在或您沒有權限訪問",
-        });
-      }
-
-      const result = await client.query(
-        `SELECT id, pond_id, feeding_amount, death_count, medication_given,
-                medication_type, notes, log_date, created_at, updated_at
-         FROM pond_daily_logs 
-         WHERE id = $1 AND pond_id = $2`,
-        [logId, pondId]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({
-          ok: false,
-          error: "日常記錄不存在",
-        });
-      }
-
-      res.json({
-        ok: true,
-        log: result.rows[0],
-      });
-    } finally {
-      client.release();
+    const hasAccess = await checkPondOwnership(pondId, userId);
+    if (!hasAccess) {
+      return res.status(404).json({ ok: false, error: "找不到指定的池塘" });
     }
+
+    const log = await getDailyLogById(logId, pondId);
+    if (!log) {
+      return res.status(404).json({ ok: false, error: "找不到指定的每日紀錄" });
+    }
+
+    return res.json({ ok: true, log });
   } catch (error) {
-    console.error("獲取日常記錄詳情錯誤:", error);
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
-      error: "獲取日常記錄詳情失敗",
+      error: "取得單筆每日紀錄失敗",
       detail: error.message,
     });
   }
 });
 
-// 創建新的日常記錄
 router.post("/", async (req, res) => {
   try {
     const userId = req.user.user_id;
     const pondId = req.params.pondId;
-    const {
-      feeding_amount = 0,
-      death_count = 0,
-      medication_given = false,
-      medication_type = null,
-      notes = null,
-      log_date,
-    } = req.body;
 
-    // 驗證必填欄位
-    if (!log_date) {
-      return res.status(400).json({
-        ok: false,
-        error: "記錄日期為必填項目",
-      });
+    const validationError = validateBaseFields(req.body, { requireLogDate: true });
+    if (validationError) {
+      return res.status(400).json({ ok: false, error: validationError });
     }
 
-    // 驗證數值範圍
-    if (feeding_amount < 0) {
-      return res.status(400).json({
-        ok: false,
-        error: "餵養量不能為負數",
-      });
-    }
-
-    if (death_count < 0) {
-      return res.status(400).json({
-        ok: false,
-        error: "死亡數不能為負數",
-      });
-    }
-
-    // 檢查池塘權限
     const hasAccess = await checkPondOwnership(pondId, userId);
     if (!hasAccess) {
-      return res.status(404).json({
-        ok: false,
-        error: "池塘不存在或您沒有權限訪問",
-      });
+      return res.status(404).json({ ok: false, error: "找不到指定的池塘" });
     }
 
-    // 創建日常記錄
-    const log = await createDailyLog(pondId, {
-      feeding_amount,
-      death_count,
-      medication_given,
-      medication_type,
-      notes,
-      log_date,
+    const log = await createDailyLog(pondId, userId, {
+      feeding_amount:
+        req.body.feeding_amount === undefined
+          ? 0
+          : Number(req.body.feeding_amount),
+      death_count:
+        req.body.death_count === undefined ? 0 : Number(req.body.death_count),
+      notes: req.body.notes ?? null,
+      log_date: req.body.log_date,
+      items: req.body.items,
+      medication_type: req.body.medication_type,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       ok: true,
-      message: "日常記錄創建成功",
-      log: log,
+      message: "每日紀錄建立成功",
+      log,
     });
   } catch (error) {
-    console.error("創建日常記錄錯誤:", error);
-
-    if (error.message === "該日期已有記錄，每日只能有一筆記錄") {
-      return res.status(409).json({
-        ok: false,
-        error: "該日期已有記錄，請使用更新功能或選擇其他日期",
-      });
+    const mapped = buildErrorResponse(res, error);
+    if (mapped) {
+      return mapped;
     }
 
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
-      error: "創建日常記錄失敗",
+      error: "建立每日紀錄失敗",
       detail: error.message,
     });
   }
 });
 
-// 更新日常記錄
 router.put("/:logId", async (req, res) => {
   try {
     const userId = req.user.user_id;
     const pondId = req.params.pondId;
     const logId = req.params.logId;
-    const {
-      feeding_amount,
-      death_count,
-      medication_given,
-      medication_type,
-      notes,
-      log_date,
-    } = req.body;
 
-    // 驗證數值範圍
-    if (feeding_amount !== undefined && feeding_amount < 0) {
-      return res.status(400).json({
-        ok: false,
-        error: "餵養量不能為負數",
-      });
+    const validationError = validateBaseFields(req.body);
+    if (validationError) {
+      return res.status(400).json({ ok: false, error: validationError });
     }
 
-    if (death_count !== undefined && death_count < 0) {
-      return res.status(400).json({
-        ok: false,
-        error: "死亡數不能為負數",
-      });
-    }
-
-    // 檢查池塘權限
     const hasAccess = await checkPondOwnership(pondId, userId);
     if (!hasAccess) {
-      return res.status(404).json({
-        ok: false,
-        error: "池塘不存在或您沒有權限訪問",
-      });
+      return res.status(404).json({ ok: false, error: "找不到指定的池塘" });
     }
 
-    // 更新日常記錄
-    const log = await updateDailyLog(logId, pondId, {
-      feeding_amount,
-      death_count,
-      medication_given,
-      medication_type,
-      notes,
-      log_date,
+    const log = await updateDailyLog(logId, pondId, userId, {
+      feeding_amount:
+        req.body.feeding_amount === undefined
+          ? undefined
+          : Number(req.body.feeding_amount),
+      death_count:
+        req.body.death_count === undefined
+          ? undefined
+          : Number(req.body.death_count),
+      notes: req.body.notes,
+      log_date: req.body.log_date,
+      items: req.body.items,
+      medication_type: req.body.medication_type,
     });
 
-    res.json({
+    return res.json({
       ok: true,
-      message: "日常記錄更新成功",
-      log: log,
+      message: "每日紀錄更新成功",
+      log,
     });
   } catch (error) {
-    console.error("更新日常記錄錯誤:", error);
-
-    if (error.message === "記錄不存在或您沒有權限修改") {
-      return res.status(404).json({
-        ok: false,
-        error: "日常記錄不存在",
-      });
+    const mapped = buildErrorResponse(res, error);
+    if (mapped) {
+      return mapped;
     }
 
-    if (error.message === "該日期已有其他記錄，每日只能有一筆記錄") {
-      return res.status(409).json({
-        ok: false,
-        error: "該日期已有其他記錄，請選擇其他日期",
-      });
-    }
-
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
-      error: "更新日常記錄失敗",
+      error: "更新每日紀錄失敗",
       detail: error.message,
     });
   }
 });
 
-// 刪除日常記錄
 router.delete("/:logId", async (req, res) => {
   try {
     const userId = req.user.user_id;
     const pondId = req.params.pondId;
     const logId = req.params.logId;
 
-    // 檢查池塘權限
     const hasAccess = await checkPondOwnership(pondId, userId);
     if (!hasAccess) {
-      return res.status(404).json({
-        ok: false,
-        error: "池塘不存在或您沒有權限訪問",
-      });
+      return res.status(404).json({ ok: false, error: "找不到指定的池塘" });
     }
 
-    // 刪除日常記錄
     const deleted = await deleteDailyLog(logId, pondId);
-
     if (!deleted) {
-      return res.status(404).json({
-        ok: false,
-        error: "日常記錄不存在",
-      });
+      return res.status(404).json({ ok: false, error: "找不到指定的每日紀錄" });
     }
 
-    res.json({
+    return res.json({
       ok: true,
-      message: "日常記錄刪除成功",
+      message: "每日紀錄刪除成功",
     });
   } catch (error) {
-    console.error("刪除日常記錄錯誤:", error);
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
-      error: "刪除日常記錄失敗",
+      error: "刪除每日紀錄失敗",
       detail: error.message,
     });
   }

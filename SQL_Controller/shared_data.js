@@ -85,11 +85,35 @@ export const getSharedDailyLogs = async ({
   }
 
   const query = `
-    SELECT id, pond_id, feeding_amount, death_count, medication_given,
-           medication_type, notes, log_date, created_at, updated_at
-    FROM pond_daily_logs
+    SELECT
+      pdl.id,
+      pdl.pond_id,
+      pdl.feeding_amount,
+      pdl.death_count,
+      pdl.notes,
+      pdl.log_date,
+      pdl.created_at,
+      pdl.updated_at,
+      COALESCE((
+        SELECT json_agg(
+          json_build_object(
+            'id', dli.id,
+            'catalog_id', dli.catalog_id,
+            'item_name_snapshot', dli.item_name_snapshot,
+            'category', dli.category,
+            'dosage', dli.dosage,
+            'unit', dli.unit,
+            'created_at', dli.created_at,
+            'updated_at', dli.updated_at
+          )
+          ORDER BY dli.id ASC
+        )
+        FROM daily_log_items dli
+        WHERE dli.daily_log_id = pdl.id
+      ), '[]'::json) AS items
+    FROM pond_daily_logs pdl
     WHERE ${conditions.join(" AND ")}
-    ORDER BY log_date DESC, created_at DESC
+    ORDER BY pdl.log_date DESC, pdl.created_at DESC
     LIMIT $${valueCount++} OFFSET $${valueCount++}
   `;
   values.push(limit, offset);

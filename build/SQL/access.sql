@@ -8,7 +8,7 @@ END $$ LANGUAGE plpgsql;
 
 CREATE TABLE IF NOT EXISTS access_keys (
   id                    BIGSERIAL PRIMARY KEY,
-  user_id               BIGINT NOT NULL,
+  user_id               BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   access_hash           TEXT NOT NULL,
   access_preview        TEXT,
   pond_ids              BIGINT[] NOT NULL DEFAULT '{}',

@@ -1,6 +1,7 @@
 import { pool_RW } from "./db_connect.js";
 import { error as logError } from "../methods/logger.js";
 import crypto from "crypto";
+import { removeAccessScopeReferences } from "./access_keys.js";
 
 export const hashToken = (token) =>
   crypto.createHash("sha256").update(String(token)).digest("hex");
@@ -92,13 +93,47 @@ export const updateSensor = async (pondId, sensorId, data) => {
 };
 
 export const deleteSensor = async (pondId, sensorId) => {
-  const query = `
-    DELETE FROM sensors
-    WHERE id = $1 AND pond_id = $2
-    RETURNING id
-  `;
-  const { rows } = await pool_RW.query(query, [sensorId, pondId]);
-  return rows.length > 0;
+  const client = await pool_RW.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const sensorCheck = await client.query(
+      `
+        SELECT id
+        FROM sensors
+        WHERE id = $1 AND pond_id = $2
+        LIMIT 1
+      `,
+      [sensorId, pondId]
+    );
+    if (sensorCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    await removeAccessScopeReferences({
+      sensorIds: [sensorId],
+      client,
+    });
+
+    const deleteResult = await client.query(
+      `
+        DELETE FROM sensors
+        WHERE id = $1 AND pond_id = $2
+        RETURNING id
+      `,
+      [sensorId, pondId]
+    );
+
+    await client.query("COMMIT");
+    return deleteResult.rows.length > 0;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 export const updateSensorLocalIpIfChanged = async (sensor_id, local_ip) => {

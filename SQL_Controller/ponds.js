@@ -1,5 +1,6 @@
 import { pool_RW, pool_RO } from "./db_connect.js";
 import { error as logError } from "../methods/logger.js";
+import { removeAccessScopeReferences } from "./access_keys.js";
 
 export const getUserPonds = async (userId) => {
   const query = `
@@ -108,13 +109,58 @@ export const updatePond = async (pondId, userId, data) => {
 };
 
 export const deletePond = async (pondId, userId) => {
-  const query = `
-    DELETE FROM ponds
-    WHERE id = $1 AND user_id = $2
-    RETURNING id
-  `;
-  const { rows } = await pool_RW.query(query, [pondId, userId]);
-  return rows.length > 0;
+  const client = await pool_RW.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const pondCheck = await client.query(
+      `
+        SELECT id
+        FROM ponds
+        WHERE id = $1 AND user_id = $2
+        LIMIT 1
+      `,
+      [pondId, userId]
+    );
+    if (pondCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    const sensorResult = await client.query(
+      `
+        SELECT id
+        FROM sensors
+        WHERE pond_id = $1
+      `,
+      [pondId]
+    );
+    const sensorIds = sensorResult.rows.map((row) => Number(row.id));
+
+    await removeAccessScopeReferences({
+      pondIds: [pondId],
+      sensorIds,
+      client,
+    });
+
+    const deleteResult = await client.query(
+      `
+        DELETE FROM ponds
+        WHERE id = $1 AND user_id = $2
+        RETURNING id
+      `,
+      [pondId, userId]
+    );
+
+    await client.query("COMMIT");
+    return deleteResult.rows.length > 0;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 export const getLatestSensorData = async (pondId) => {
@@ -132,10 +178,35 @@ export const getLatestSensorData = async (pondId) => {
 
 export const getLatestDailyLog = async (pondId) => {
   const query = `
-    SELECT *
-    FROM pond_daily_logs
-    WHERE pond_id = $1
-    ORDER BY log_date DESC, created_at DESC
+    SELECT
+      pdl.id,
+      pdl.pond_id,
+      pdl.feeding_amount,
+      pdl.death_count,
+      pdl.notes,
+      pdl.log_date,
+      pdl.created_at,
+      pdl.updated_at,
+      COALESCE((
+        SELECT json_agg(
+          json_build_object(
+            'id', dli.id,
+            'catalog_id', dli.catalog_id,
+            'item_name_snapshot', dli.item_name_snapshot,
+            'category', dli.category,
+            'dosage', dli.dosage,
+            'unit', dli.unit,
+            'created_at', dli.created_at,
+            'updated_at', dli.updated_at
+          )
+          ORDER BY dli.id ASC
+        )
+        FROM daily_log_items dli
+        WHERE dli.daily_log_id = pdl.id
+      ), '[]'::json) AS items
+    FROM pond_daily_logs pdl
+    WHERE pdl.pond_id = $1
+    ORDER BY pdl.log_date DESC, pdl.created_at DESC
     LIMIT 1
   `;
   const { rows } = await pool_RO.query(query, [pondId]);

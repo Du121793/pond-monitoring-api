@@ -7,7 +7,7 @@ import { hashAccessKey } from "../../methods/access.js";
 
 const buildAccessError = (status) => {
   if (!status) {
-    return "access 無效";
+    return "access 不存在";
   }
   if (status.revoked_at) {
     return "access 已撤銷";
@@ -16,10 +16,14 @@ const buildAccessError = (status) => {
     return "access 已過期";
   }
   if (Number(status.used_requests) >= Number(status.max_requests)) {
-    return "access 已達請求上限";
+    return "access 已達最大請求次數";
   }
-  return "access 無效";
+  return "access 不存在";
 };
+
+const hasUsableAccessScope = (access) =>
+  (Array.isArray(access?.pond_ids) && access.pond_ids.length > 0)
+  || (Array.isArray(access?.sensor_ids) && access.sensor_ids.length > 0);
 
 export const requireAccessKey = async (req, res, next) => {
   try {
@@ -41,6 +45,14 @@ export const requireAccessKey = async (req, res, next) => {
       return res.status(403).json({
         ok: false,
         error: buildAccessError(status),
+      });
+    }
+
+    if (!hasUsableAccessScope(access)) {
+      await deleteAccessKeyByHash(accessHash);
+      return res.status(403).json({
+        ok: false,
+        error: "access 已無有效 scope",
       });
     }
 
