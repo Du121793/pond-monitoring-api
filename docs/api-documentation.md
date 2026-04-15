@@ -47,22 +47,19 @@
 | 29 | `/web/ponds/:pondId/sensors/:sensorId/token` | `DELETE` | 撤銷感測器 Token | Web |
 | 30 | `/sensors/v1/include` | `POST` | 感測器上報（v1） | Sensor |
 | 31 | `/sensors/include` | `POST` | 感測器上報 | Sensor |
-| 32 | `/sensors/auth/token-check` | `GET` | Sensor Token 檢查 | Sensor |
-| 33 | `/web/access` | `GET` | Access 列表 | Web |
-| 34 | `/web/access` | `POST` | 建立 Access | Web |
-| 35 | `/web/access/:accessId` | `GET` | Access 詳情 | Web |
-| 36 | `/web/access/:accessId` | `PUT` | 更新 Access | Web |
-| 37 | `/web/access/:accessId` | `DELETE` | 刪除 Access | Web |
-| 38 | `/shared/getInfo` | `GET` | Access 使用手冊與可用資源 | Access |
-| 39 | `/shared/common` | `GET` | 常用資訊（清單 / 近 1 天 / 近 30 天 / 趨勢） | Access |
-| 40 | `/shared/data/ponds` | `GET` | Access 查詢池塘 | Access |
-| 41 | `/shared/data/sensors` | `GET` | Access 查詢感測器 | Access |
-| 42 | `/shared/data/daily-logs` | `GET` | Access 查詢每日紀錄 | Access |
-| 43 | `/shared/data/sensor-data` | `GET` | Access 查詢感測器資料 | Access |
-| 44 | `/web/notifications/subscribe` | `POST` | 訂閱推播通知 | Web |
-| 45 | `/web/notifications/unsubscribe` | `POST` | 取消推播通知 | Web |
-| 46 | `/web/notifications/test` | `POST` | 測試推播通知 | Web |
-| 47 | `/webhook/grafana` | `POST` | Grafana 告警 Webhook | 無（可選 Token） |
+| 32 | `/sensors/maintainRecord` | `POST` | 感測器校正紀錄上報 | Sensor |
+| 33 | `/sensors/crashReport` | `POST` | 感測器 Crash 報告上報 | Sensor |
+| 34 | `/sensors/auth/token-check` | `GET` | Sensor Token 檢查 | Sensor |
+| 40 | `/shared/getInfo` | `GET` | Access 使用手冊與可用資源 | Access |
+| 41 | `/shared/common` | `GET` | 常用資訊（清單 / 近 1 天 / 近 30 天 / 趨勢） | Access |
+| 42 | `/shared/data/ponds` | `GET` | Access 查詢池塘 | Access |
+| 43 | `/shared/data/sensors` | `GET` | Access 查詢感測器 | Access |
+| 44 | `/shared/data/daily-logs` | `GET` | Access 查詢每日紀錄 | Access |
+| 45 | `/shared/data/sensor-data` | `GET` | Access 查詢感測器資料 | Access |
+| 46 | `/web/notifications/subscribe` | `POST` | 訂閱推播通知 | Web |
+| 47 | `/web/notifications/unsubscribe` | `POST` | 取消推播通知 | Web |
+| 48 | `/web/notifications/test` | `POST` | 測試推播通知 | Web |
+| 49 | `/webhook/grafana` | `POST` | Grafana 告警 Webhook | 無（可選 Token） |
 
 ## 3. 介面詳情
 
@@ -720,6 +717,32 @@
 - 與 `/sensors/v1/include` 相同。
 - 備註：會忽略 body 內的 `sensorId`、`sensor_id`、`pond_id`、`user_id`，以 token 內容為準。
 
+**POST** `/sensors/maintainRecord`
+
+- Headers：`Authorization: Bearer <sensor_token>`
+- Body：
+  - `date` string 選填（ISO 時間字串，裝置送出的事件時間）
+  - `local_ip` string 選填
+  - `calibration_time` string 選填（ISO 時間字串）
+  - `calibration_start` string 選填（ISO 時間字串）
+  - `before` object 選填（校正前快照）
+  - `after` object 選填（校正後快照）
+- 備註：
+  - 會忽略 body 內的 `sensorId`、`sensor_id`、`pond_id`、`user_id`，以 token 內容為準。
+  - 後端會原樣保存 `before` / `after` JSON，供後續追查校正歷程。
+
+**POST** `/sensors/crashReport`
+
+- Headers：`Authorization: Bearer <sensor_token>`
+- Body：
+  - `date` string 選填（ISO 時間字串，裝置送出的事件時間）
+  - `local_ip` string 選填
+  - `msg_err` string 必填
+  - `log_text` string 選填
+- 備註：
+  - 會忽略 body 內的 `sensorId`、`sensor_id`、`pond_id`、`user_id`，以 token 內容為準。
+  - `msg_err` 與 `log_text` 會寫入 crash report 專用資料表，不會混進一般 `sensor_data`。
+
 **GET** `/sensors/auth/token-check`
 
 - Response：
@@ -735,99 +758,7 @@
 }
 ```
 
-### 3.7 Access 管理（Web）
-
-**GET** `/web/access`
-
-- Query：
-  - `limit` number 選填，預設 `30`，最大 `200`
-  - `offset` number 選填，預設 `0`
-- Response：
-
-```json
-{
-  "ok": true,
-  "access_keys": [
-    {
-      "id": 1,
-      "user_id": 1,
-      "pond_ids": [3],
-      "sensor_ids": [8, 9],
-      "max_requests": 200,
-      "used_requests": 12,
-      "expires_at": "2026-04-15T12:00:00.000Z",
-      "revoked_at": null,
-      "access_preview": "abcd...wxyz",
-      "status": {
-        "expired": false,
-        "revoked": false,
-        "exhausted": false,
-        "active": true
-      },
-      "remaining_requests": 188
-    }
-  ],
-  "count": 1,
-  "total": 1,
-  "pagination": {
-    "limit": 30,
-    "offset": 0,
-    "total": 1,
-    "hasMore": false
-  }
-}
-```
-
-**POST** `/web/access`
-
-- Body：
-  - `sensor_ids` number[] 選填
-  - `pond_ids` number[] 選填
-  - `expires_in_minutes` number 選填
-  - `max_requests` number 選填
-- 規則：
-  - `sensor_ids`、`pond_ids` 至少要提供一種。
-  - 只提供 `pond_ids` 時，後端會自動把這些池塘底下的所有 sensors 一併納入。
-  - 只提供 `sensor_ids` 時，後端會自動補齊這些 sensors 所屬的 `pond_ids`。
-- Response：
-
-```json
-{
-  "ok": true,
-  "message": "access 建立成功",
-  "access_key": "<raw-access-key>",
-  "access": {}
-}
-```
-
-**GET** `/web/access/:accessId`
-
-- Response：
-
-```json
-{
-  "ok": true,
-  "access": {}
-}
-```
-
-**PUT** `/web/access/:accessId`
-
-- Body：與建立相同，皆為選填
-
-**DELETE** `/web/access/:accessId`
-
-- 說明：直接刪除 access record，不是單純把 `revoked_at` 標記起來。
-- Response：
-
-```json
-{
-  "ok": true,
-  "message": "access 已刪除"
-}
-```
-
-### 3.8 Shared Access（公開查詢）
+### 3.7 Shared Access（公開查詢）
 
 所有 `/shared` 路由僅支援 `GET`，並必須帶 `?access=<access_key>`。
 
@@ -884,7 +815,7 @@
   - `second` 目前等同 `raw`。
   - `minute` 會回傳每分鐘聚合後的 min/max/avg/std 欄位。
 
-### 3.9 推播通知（Web）
+### 3.8 推播通知（Web）
 
 **POST** `/web/notifications/subscribe`
 
@@ -906,7 +837,7 @@
   - `url` string 選填
   - `require_interaction` boolean 選填
 
-### 3.10 Grafana 告警 Webhook
+### 3.9 Grafana 告警 Webhook
 
 **POST** `/webhook/grafana`
 

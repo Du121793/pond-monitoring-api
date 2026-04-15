@@ -61,6 +61,54 @@ INSERT INTO sensor_data (
   (3, 7.5, 125, 12.5, 46.0, 182.0, 305.0, 221.0, 7.0, 84.0, 355, 121, 23.8, 24.6, now() - interval '90 minutes', now() - interval '90 minutes'),
   (4, 7.0, 100, 10.0, 35.0, 160.0, 280.0, 210.0, 6.2, 76.0, 330, 110, 22.9, 23.7, now() - interval '45 minutes', now() - interval '45 minutes');
 
+INSERT INTO sensor_maintenance_records (
+  sensor_id,
+  pond_id,
+  user_id,
+  local_ip,
+  calibration_start,
+  calibration_time,
+  reported_at,
+  before_snapshot,
+  after_snapshot,
+  raw_payload,
+  created_at
+) VALUES (
+  1,
+  1,
+  1,
+  '192.168.1.10',
+  now() - interval '35 minutes',
+  now() - interval '30 minutes',
+  now() - interval '30 minutes',
+  '{"ph4_voltage": 2.81, "ph7_voltage": 2.52}'::jsonb,
+  '{"ph4_voltage": 2.80, "ph7_voltage": 2.50}'::jsonb,
+  '{"calibration_start": "demo", "source": "testdata"}'::jsonb,
+  now() - interval '30 minutes'
+);
+
+INSERT INTO sensor_crash_reports (
+  sensor_id,
+  pond_id,
+  user_id,
+  local_ip,
+  reported_at,
+  msg_err,
+  log_text,
+  raw_payload,
+  created_at
+) VALUES (
+  1,
+  1,
+  1,
+  '192.168.1.10',
+  now() - interval '10 minutes',
+  'ValueError: sensor read timeout',
+  '2026-04-15T10:00:00Z CRASH ValueError: sensor read timeout',
+  '{"source": "testdata"}'::jsonb,
+  now() - interval '10 minutes'
+);
+
 INSERT INTO pond_daily_logs (
   id,
   pond_id,
@@ -108,6 +156,8 @@ SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users)
 SELECT setval(pg_get_serial_sequence('ponds', 'id'), (SELECT MAX(id) FROM ponds));
 SELECT setval(pg_get_serial_sequence('sensors', 'id'), (SELECT MAX(id) FROM sensors));
 SELECT setval(pg_get_serial_sequence('sensor_data', 'id'), (SELECT COALESCE(MAX(id), 1) FROM sensor_data));
+SELECT setval(pg_get_serial_sequence('sensor_maintenance_records', 'id'), (SELECT COALESCE(MAX(id), 1) FROM sensor_maintenance_records));
+SELECT setval(pg_get_serial_sequence('sensor_crash_reports', 'id'), (SELECT COALESCE(MAX(id), 1) FROM sensor_crash_reports));
 SELECT setval(pg_get_serial_sequence('pond_daily_logs', 'id'), (SELECT COALESCE(MAX(id), 1) FROM pond_daily_logs));
 SELECT setval(pg_get_serial_sequence('daily_log_option_catalog', 'id'), (SELECT COALESCE(MAX(id), 1) FROM daily_log_option_catalog));
 SELECT setval(pg_get_serial_sequence('daily_log_items', 'id'), (SELECT COALESCE(MAX(id), 1) FROM daily_log_items));

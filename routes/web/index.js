@@ -2,7 +2,6 @@ import express from "express";
 import passport from "../../config/passport.js";
 import { info } from "../../methods/logger.js";
 import pondsRouter from "./ponds/index.js";
-import accessRouter from "./access.js";
 import notificationsRouter from "./notifications.js";
 import dailyLogOptionsRouter from "./daily_log_options.js";
 
@@ -11,7 +10,6 @@ const router = express.Router();
 router.use(passport.authenticate("jwt-web", { session: false }));
 
 router.use("/ponds", pondsRouter);
-router.use("/access", accessRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/daily-log-options", dailyLogOptionsRouter);
 
