@@ -66,6 +66,25 @@ export const createWebToken = ({ user_id }) => {
   return signToken({ user_id }, getWebSecret());
 };
 
+export const createAiHelperToken = ({ user_id, roles = ["user"] }) => {
+  if (!user_id) {
+    throw new Error("user_id is required");
+  }
+
+  const expiresIn = process.env.AI_HELPER_JWT_EXPIRES_IN || "60s";
+
+  return signToken(
+    {
+      user_id,
+      roles,
+      iss: "backend-api",
+      aud: "ai-helper",
+    },
+    getWebSecret(),
+    { expiresIn },
+  );
+};
+
 export const createSensorToken = ({ user_id, pond_id, sensor_id }) => {
   if (!user_id || !pond_id || !sensor_id) {
     throw new Error("user_id, pond_id, sensor_id are required");
