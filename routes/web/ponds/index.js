@@ -12,6 +12,7 @@ import {
 } from "../../../SQL_Controller/index.js";
 import dailyLogsRouter from "./daily_logs.js";
 import sensorsRouter from "./sensors.js";
+import predictionsRouter from "./predictions.js";
 
 const router = express.Router();
 
@@ -69,6 +70,7 @@ router.use(passport.authenticate("jwt-web", { session: false }));
 
 router.use("/:pondId/daily-logs", dailyLogsRouter);
 router.use("/:pondId/sensors", sensorsRouter);
+router.use("/:pondId/predictions", predictionsRouter);
 
 // 獲取用戶的所有池塘
 router.get("/", async (req, res) => {

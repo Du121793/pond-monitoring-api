@@ -7,11 +7,16 @@ import {
   fetchAiSessions,
   fetchAiSessionDetail,
   openAiChatStream,
+  fetchAiModels,
 } from "../../methods/ai_helper.js";
 import { info, error as logError } from "../../methods/logger.js";
 
 const router = express.Router();
 
+/**
+ * 解析布林值標記。
+ * 支援字串 "true"/"false" 或原始布林值。
+ */
 const parseBooleanFlag = (value, defaultValue) => {
   if (value === undefined || value === null) {
     return defaultValue;
@@ -27,6 +32,9 @@ const parseBooleanFlag = (value, defaultValue) => {
   return defaultValue;
 };
 
+/**
+ * 將 AI Helper 的 HTTP 錯誤對應到 Web API 回應格式。
+ */
 const mapAiHelperError = (res, err, fallbackMessage) => {
   if (err instanceof AiHelperHttpError) {
     return res.status(err.status).json({
@@ -40,7 +48,7 @@ const mapAiHelperError = (res, err, fallbackMessage) => {
     return res.status(504).json({
       ok: false,
       error: fallbackMessage,
-      detail: "AI Helper request timed out",
+      detail: "AI Helper 請求逾時",
     });
   }
 
@@ -51,16 +59,36 @@ const mapAiHelperError = (res, err, fallbackMessage) => {
   });
 };
 
+/**
+ * 檢查 AI Helper 系統健康狀態。
+ */
 router.get("/health", async (req, res) => {
   try {
     const data = await fetchAiHelperHealth(req.user.user_id);
     res.json(data);
   } catch (err) {
     logError("web-ai-health", err, req);
-    mapAiHelperError(res, err, "AI Helper health check failed");
+    mapAiHelperError(res, err, "AI Helper 健康檢查失敗");
   }
 });
 
+/**
+ * 獲取可用模型列表。
+ * 直接從後端獲取配置清單。
+ */
+router.get("/models", async (req, res) => {
+  try {
+    const data = await fetchAiModels(req.user.user_id);
+    res.json(data);
+  } catch (err) {
+    logError("web-ai-models", err, req);
+    mapAiHelperError(res, err, "獲取模型列表失敗");
+  }
+});
+
+/**
+ * 列出使用者的對話歷史。
+ */
 router.get("/sessions", async (req, res) => {
   const parsedLimit = Number(req.query?.limit);
   const limit =
@@ -77,10 +105,13 @@ router.get("/sessions", async (req, res) => {
     res.json(data);
   } catch (err) {
     logError("web-ai-sessions", err, req);
-    mapAiHelperError(res, err, "AI session list fetch failed");
+    mapAiHelperError(res, err, "獲取對話列表失敗");
   }
 });
 
+/**
+ * 獲取單一對話詳情。
+ */
 router.get("/sessions/:sessionId", async (req, res) => {
   try {
     const data = await fetchAiSessionDetail({
@@ -91,10 +122,13 @@ router.get("/sessions/:sessionId", async (req, res) => {
     res.json(data);
   } catch (err) {
     logError("web-ai-session", err, req);
-    mapAiHelperError(res, err, "AI session fetch failed");
+    mapAiHelperError(res, err, "獲取對話詳情失敗");
   }
 });
 
+/**
+ * 刪除對話紀錄。
+ */
 router.delete("/sessions/:sessionId", async (req, res) => {
   try {
     const data = await deleteAiSession({
@@ -105,10 +139,14 @@ router.delete("/sessions/:sessionId", async (req, res) => {
     res.json(data);
   } catch (err) {
     logError("web-ai-session-delete", err, req);
-    mapAiHelperError(res, err, "AI session delete failed");
+    mapAiHelperError(res, err, "刪除對話失敗");
   }
 });
 
+/**
+ * AI 串流聊天 API。
+ * 支援多模態附件、深度思考模式與時間窗查詢。
+ */
 router.post("/chat/stream", async (req, res) => {
   const userId = req.user.user_id;
   const pondId = Number(req.body?.pond_id);
@@ -143,16 +181,23 @@ router.post("/chat/stream", async (req, res) => {
     false
   );
 
+  // 根據 API 手冊新增的參數
+  const model = req.body?.model || process.env.LLM_DEFAULT_MODEL || null;
+  const attachments = Array.isArray(req.body?.attachments)
+    ? req.body.attachments
+    : [];
+  const deepThinking = parseBooleanFlag(req.body?.deep_thinking, false);
+
   if (!Number.isInteger(pondId) || pondId <= 0) {
     return res
       .status(400)
-      .json({ ok: false, error: "pond_id must be a positive integer" });
+      .json({ ok: false, error: "pond_id 必須為正整數" });
   }
 
   if (!message) {
     return res
       .status(400)
-      .json({ ok: false, error: "message is required" });
+      .json({ ok: false, error: "訊息內容不能為空" });
   }
 
   try {
@@ -164,6 +209,7 @@ router.post("/chat/stream", async (req, res) => {
       });
     }
 
+    // 將所有參數透傳給後端，後端會根據模型設定自動過濾 attachments。
     const upstream = await openAiChatStream({
       userId,
       pondId,
@@ -175,9 +221,12 @@ router.post("/chat/stream", async (req, res) => {
       timeWindowFrom,
       timeWindowTo,
       comparePreviousWindow,
+      model,
+      attachments,
+      deepThinking,
     });
 
-    info(userId, `AI 串流開始 pond=${pondId}`, req.ip);
+    info(userId, `AI 串流開始 pond=${pondId} model=${model}`, req.ip);
 
     res.status(200);
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -201,7 +250,7 @@ router.post("/chat/stream", async (req, res) => {
     } catch (err) {
       logError("web-ai-stream", err, req);
       if (!res.headersSent) {
-        mapAiHelperError(res, err, "AI stream failed");
+        mapAiHelperError(res, err, "AI 串流失敗");
       } else {
         res.write(
           `event: error\ndata: ${JSON.stringify({
@@ -216,7 +265,7 @@ router.post("/chat/stream", async (req, res) => {
     }
   } catch (err) {
     logError("web-ai-stream", err, req);
-    mapAiHelperError(res, err, "AI stream failed");
+    mapAiHelperError(res, err, "AI 串流請求失敗");
   }
 });
 

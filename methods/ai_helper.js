@@ -168,6 +168,39 @@ export const deleteAiSession = async ({ userId, sessionId }) => {
   }
 };
 
+/**
+ * 獲取後端可用的 AI 模型清單。
+ * 根據 API 手冊，此 API 會列出已啟用且設定正確的模型。
+ */
+export const fetchAiModels = async (userId) => {
+  const { controller, clear } = buildAbortController(getJsonTimeoutMs());
+
+  try {
+    const response = await fetch(buildUrl("/api/ai/models"), {
+      method: "GET",
+      headers: buildHeaders(userId),
+      signal: controller.signal,
+    });
+
+    const data = await parseJsonSafely(response);
+    if (!response.ok) {
+      throw new AiHelperHttpError(
+        response.status,
+        data?.detail || "AI 模型清單獲取失敗",
+        data
+      );
+    }
+
+    return data;
+  } finally {
+    clear();
+  }
+};
+
+/**
+ * 開啟 AI 串流對話。
+ * 已根據 API_MANUAL.md 新增 model, attachments, deep_thinking 等參數。
+ */
 export const openAiChatStream = async ({
   userId,
   pondId,
@@ -179,6 +212,9 @@ export const openAiChatStream = async ({
   timeWindowFrom,
   timeWindowTo,
   comparePreviousWindow,
+  model = null,
+  attachments = [],
+  deepThinking = false,
 }) => {
   const url = new URL(buildUrl("/api/ai/chat/stream"));
   const transport = url.protocol === "https:" ? https : http;
@@ -192,6 +228,9 @@ export const openAiChatStream = async ({
     time_window_from: timeWindowFrom,
     time_window_to: timeWindowTo,
     compare_previous_window: comparePreviousWindow,
+    model,
+    attachments,
+    deep_thinking: deepThinking,
   });
 
   return await new Promise((resolve, reject) => {

@@ -71,15 +71,20 @@ app.use(
         }
       },
     },
-  })
+  }),
 );
+
+// 必須在全局 express.json() 之前定義特定路由的限制
+// 僅針對 /web/ai 路由放寬至 20MB（支援 Base64 附件圖片）
+// 其他路由（如 /web/ponds, /sensors）仍會跳過此處，並受後方全局 100kb 限制保護
+app.use("/web/ai", express.json({ limit: "20mb" }));
 
 app.use(express.json());
 app.use(passport.initialize());
 app.use("/sensors", sensorsRouter);
 app.use("/web", webRouter);
 app.use("/web_auth", webAuthRouter);
-app.use("/shared", sharedRouter);
+// app.use("/shared", sharedRouter);
 app.use("/webhook", webhookRouter);
 
 app.listen(PORT, async () => {
