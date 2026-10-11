@@ -1,0 +1,11 @@
+%% 根據此版本程式的責任與相依繪製，不代表已完成外部服務或硬體驗收
+flowchart TB
+  SENSOR["ESP32<br/>Sensor JWT / 量測上報"] --> API["Express 魚塭 API<br/>身分 / 魚池權限 / 路由"]
+  WEB["魚塭網頁<br/>Web JWT"] --> API
+  API --> DB[("PostgreSQL<br/>魚池 / 量測 / 日誌 / 通知")]
+  API <-->|"模型清單 / 對話 / SSE"| RAG["RAG AI Helper<br/>獨立 Python 服務"]
+  PRED["外部模型服務<br/>風險 / 預測"] --> CRON["排程與同步<br/>預測回補 / 通知傳送"]
+  CRON --> DB
+  GRAFANA["Grafana<br/>圖表 / 告警"] <-->|"代理 / Webhook"| API
+  API --> OUTBOX["Notification Outbox<br/>訂閱 / 冷卻 / 重試"]
+  OUTBOX --> PUSH["Web Push<br/>瀏覽器通知"]
